@@ -1,4 +1,4 @@
-"""Data parser for loading ROS parameters."""
+"""Data parser for loading online parameters."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -16,14 +16,15 @@ from nerfstudio.data.dataparsers.base_dataparser import (
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
 
+import os
 
 @dataclass
-class ROSDataParserConfig(DataParserConfig):
+class ReplicaDataParserConfig(DataParserConfig):
     """ROS config file parser config."""
 
-    _target: Type = field(default_factory=lambda: ROSDataParser)
+    _target: Type = field(default_factory=lambda: ReplicaDataParser)
     """target class to instantiate"""
-    data: Path = Path("data/ros/nsros_config.json")
+    data: Path = Path("data/replica_room0")
     """ Path to configuration JSON. """
     scale_factor: float = 1.0
     """How much to scale the camera origins by."""
@@ -32,12 +33,12 @@ class ROSDataParserConfig(DataParserConfig):
 
 
 @dataclass
-class ROSDataParser(DataParser):
-    """ROS DataParser"""
+class ReplicaDataParser(DataParser):
+    """online DataParser"""
 
-    config: ROSDataParserConfig
+    config: ReplicaDataParserConfig
 
-    def __init__(self, config: ROSDataParserConfig):
+    def __init__(self, config: ReplicaDataParserConfig):
         super().__init__(config=config)
         self.data: Path = config.data
         self.scale_factor: float = config.scale_factor
@@ -52,7 +53,7 @@ class ROSDataParser(DataParser):
         This function generates a DataParserOutputs object. Typically in Nerfstudio
         this is used to populate the training and evaluation datasets, but since with
         NSROS Bridge our aim is to stream the data then we only have to worry about
-        loading the proper camera parameters and ROS topic names.
+        loading the proper camera parameters and image-pose pair.
 
         Args:
             split: Determines the data split (not used, but left in place for consistency
@@ -61,12 +62,12 @@ class ROSDataParser(DataParser):
             num_images: The size limit of the training image dataset. This is used to
                 pre-allocate tensors for the Cameras object that tracks camera pose.
         """
-        meta = load_from_json(self.data)
+        meta = load_from_json(self.data / "transforms.json")
 
-        image_height = meta["H"]
-        image_width = meta["W"]
-        fx = meta["fx"]
-        fy = meta["fy"]
+        image_height = meta["h"]
+        image_width = meta["w"]
+        fx = meta["fl_x"]
+        fy = meta["fl_y"]
         cx = meta["cx"]
         cy = meta["cy"]
 
@@ -78,7 +79,18 @@ class ROSDataParser(DataParser):
         p2 = meta["p2"] if "p2" in meta else 0.0
         distort = torch.tensor([k1, k2, k3, k4, p1, p2], dtype=torch.float32)
 
-        camera_to_world = torch.stack(num_images * [torch.eye(4, dtype=torch.float32)])[
+        camera_to_world = []
+        image_filenames = []
+        depth_filenames = []
+        for i, frame in enumerate(meta["frames"]):
+            c2w = torch.tensor(frame["transform_matrix"], dtype=torch.float32)
+            camera_to_world.append(c2w)
+            image_filenames.append(frame["image_file_path"])
+            if "depth_file_path" in frame:
+                depth_filenames.append(frame["depth_file_path"])
+                
+            
+        camera_to_world = torch.stack(camera_to_world, dim=0)[
             :, :-1, :
         ]
 
@@ -94,6 +106,7 @@ class ROSDataParser(DataParser):
             )
         )
 
+        num_images = len(meta["frames"]) if len(meta["frames"]) < num_images else num_images
         # Create a dummy Cameras object with the appropriate number
         # of placeholders for poses.
         cameras = Cameras(
@@ -108,21 +121,18 @@ class ROSDataParser(DataParser):
             camera_type=CameraType.PERSPECTIVE,
         )
 
-        image_filenames = []
+    
         metadata = {
-            "image_topic": meta["image_topic"],
-            "pose_topic": meta["pose_topic"],
             "num_images": num_images,
             "image_height": image_height,
             "image_width": image_width,
+            "data_dir": self.data,
         }
 
-        # Only used if depth training is enabled
-        if "depth_topic" in meta:
-            metadata["depth_topic"] = meta["depth_topic"]
+        if depth_filenames != []:
+            metadata["depth_filenames"] = depth_filenames
             metadata["depth_scale_factor"] = meta["depth_scale_factor"]
-
-
+            
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,  # This is empty
             cameras=cameras,
@@ -132,3 +142,5 @@ class ROSDataParser(DataParser):
         )
 
         return dataparser_outputs
+
+    

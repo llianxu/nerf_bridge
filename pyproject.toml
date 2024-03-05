@@ -1,5 +1,5 @@
 [project]
-name = "nsros"
+name = "nsBridge"
 version = "0.1"
 
 dependencies = [
@@ -7,11 +7,14 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["nsros*"]
+include = ["nsros*", "nsReplica*"]
 
 [tool.pyright]
-extraPaths = ["nsros"]
+extraPaths = ["nsros", "nsReplica"]
 
 [project.entry-points.'nerfstudio.method_configs']
 ros-nerfacto = 'nsros.method_configs:RosNerfacto'
 ros-depth-nerfacto = 'nsros.method_configs:RosDepthNerfacto'
+sim-nerfacto = 'nsReplica.method_configs:SimNerfacto'
+sim-depth-nerfacto = 'nsReplica.method_configs:SimDepthNerfacto'
+

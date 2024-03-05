@@ -1,4 +1,4 @@
-"""Data parser for loading ROS parameters."""
+"""Data parser for loading droid parameters."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -18,30 +18,33 @@ from nerfstudio.utils.io import load_from_json
 
 
 @dataclass
-class ROSDataParserConfig(DataParserConfig):
-    """ROS config file parser config."""
+class DroidDataParserConfig(DataParserConfig):
+    """droid config file parser config."""
 
-    _target: Type = field(default_factory=lambda: ROSDataParser)
+    _target: Type = field(default_factory=lambda: DroidDataParser)
     """target class to instantiate"""
-    data: Path = Path("data/ros/nsros_config.json")
+    data: Path = Path("nsDroid_config.json")
     """ Path to configuration JSON. """
     scale_factor: float = 1.0
     """How much to scale the camera origins by."""
     aabb_scale: float = 2.0
     """ SceneBox aabb scale."""
+    exp_path: str ="exps"
+    """ Path to the experiment folder. """
 
 
 @dataclass
-class ROSDataParser(DataParser):
-    """ROS DataParser"""
+class DroidDataParser(DataParser):
+    """droid DataParser"""
 
-    config: ROSDataParserConfig
+    config: DataParserConfig
 
-    def __init__(self, config: ROSDataParserConfig):
+    def __init__(self, config: DataParserConfig):
         super().__init__(config=config)
         self.data: Path = config.data
         self.scale_factor: float = config.scale_factor
         self.aabb = config.aabb_scale
+        self.exp_path = config.exp_path
 
     def get_dataparser_outputs(self, split="train", num_images: int = 500):
         dataparser_outputs = self._generate_dataparser_outputs(split, num_images)
@@ -51,8 +54,8 @@ class ROSDataParser(DataParser):
         """
         This function generates a DataParserOutputs object. Typically in Nerfstudio
         this is used to populate the training and evaluation datasets, but since with
-        NSROS Bridge our aim is to stream the data then we only have to worry about
-        loading the proper camera parameters and ROS topic names.
+        NSdroid Bridge our aim is to stream the data then we only have to worry about
+        loading the proper camera parameters.
 
         Args:
             split: Determines the data split (not used, but left in place for consistency
@@ -62,7 +65,6 @@ class ROSDataParser(DataParser):
                 pre-allocate tensors for the Cameras object that tracks camera pose.
         """
         meta = load_from_json(self.data)
-
         image_height = meta["H"]
         image_width = meta["W"]
         fx = meta["fx"]
@@ -110,19 +112,11 @@ class ROSDataParser(DataParser):
 
         image_filenames = []
         metadata = {
-            "image_topic": meta["image_topic"],
-            "pose_topic": meta["pose_topic"],
             "num_images": num_images,
             "image_height": image_height,
             "image_width": image_width,
+            "exp_path": self.exp_path,
         }
-
-        # Only used if depth training is enabled
-        if "depth_topic" in meta:
-            metadata["depth_topic"] = meta["depth_topic"]
-            metadata["depth_scale_factor"] = meta["depth_scale_factor"]
-
-
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,  # This is empty
             cameras=cameras,
